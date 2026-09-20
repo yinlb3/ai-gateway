@@ -1,0 +1,37 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# Virtual environments
+venv/
+.env/
+.venv/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# Tool session data
+.kimi/
+.claude/
+
+# Raw records: facts collected at runtime, not source
+logs/
+
+# Output folders
+output/
+figures/
+ops/
+*.log
+
+# Temp folders
+temp/
+tmp/
+
+# Backup and temp files
+*.bak
+*.tmpbak
+_*.py
+!__*__.py

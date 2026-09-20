@@ -1,0 +1,6 @@
+# Runtime dependencies for the ai-gateway cost tooling.
+# Python 3.12 or newer is required.
+# Both packages are installed from PyPI, no conda-specific build needed.
+
+pyyaml>=6.0.3
+arrow>=1.4.0

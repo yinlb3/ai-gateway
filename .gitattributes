@@ -1,0 +1,11 @@
+# Normalize line endings to LF in the repository.
+# Windows checkouts still get CRLF for batch files, text stays LF.
+* text=auto eol=lf
+
+# Binary files are left untouched.
+*.png binary
+*.jpg binary
+*.gif binary
+*.ico binary
+*.pdf binary
+*.xlsx binary

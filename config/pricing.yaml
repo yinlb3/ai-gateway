@@ -1,0 +1,252 @@
+# ==========================================================================
+# Pricing table - ai-gateway
+# ==========================================================================
+#
+# Real prices for DeepSeek V4 models. Verified against the official
+# pricing page on 2026-09-21.
+#
+# Billing rules (from the official page):
+#   - Prices are per million tokens, in CNY.
+#   - Off-peak price = half of peak price.
+#   - Peak hours: Beijing time, Mon-Fri, 09:00-12:00 and 14:00-18:00.
+#     All other times, including weekends, are off-peak.
+#   - Reasoning and non-reasoning modes share the same price, so no
+#     mode field is recorded.
+#   - Cache write is not billed by DeepSeek, so cache_write is absent.
+#
+# --------------------------------------------------------------------------
+# Structure
+# --------------------------------------------------------------------------
+#
+#   Part 1  tiers          a tier = one complete set of prices
+#   Part 2  model_to_tier  model name -> tier mapping
+#
+# Why two parts: the same price can cover several model names (renamed
+# models, legacy names still callable, aliases). Decoupling price from
+# model name means a rename touches one mapping line only, and historical
+# records stay valid.
+#
+# Mapping is first-match-wins. A model name absent from the mapping is
+# reported under unknown_models, never silently billed as zero.
+#
+# --------------------------------------------------------------------------
+# Part 1: tiers
+# --------------------------------------------------------------------------
+#
+# Field reference:
+#
+#   currency         required  CNY | USD. Never mixed within one report.
+#   billing          required  per_token | subscription
+#                              subscription bills 0 but keeps usage
+#   peak_windows     optional  [["HH:MM","HH:MM"], ...] half-open
+#                              [start, end). Absent = flat pricing, the
+#                              peak field is then ignored.
+#   peak_weekdays    optional  ISO weekday numbers, 1=Mon .. 7=Sun.
+#                              Defaults to [1,2,3,4,5] when peak_windows
+#                              is present. Days outside the list are
+#                              always off-peak.
+#   cache_hit        conditional  cached / cache-read input price.
+#                              Required only when cache_miss is set.
+#   cache_write      optional  cache-write price, absent for DeepSeek
+#   cache_miss       optional  cache-miss input price
+#   input            optional  plain input price, no-cache models
+#   output           required  output price
+#   verified_at      required  date the prices were checked, YYYY-MM-DD
+#   source           required  official page URL, for later review
+#
+# Two price forms:
+#   flat:  output: 4
+#   peak:  output: {idle: 4, peak: 8}
+#
+# The idle band is spelled idle, never off: in YAML 1.1 a bare off is
+# parsed as the boolean False, so {off: 4} silently becomes {False: 4}
+# and every lookup by the string 'off' fails.
+#
+# cache_miss and input are alternatives. When both are present cache_miss
+# wins and input is ignored.
+#
+# --------------------------------------------------------------------------
+# peak_windows constraints
+# --------------------------------------------------------------------------
+#
+# Every window is half-open [start, end).
+#
+# Windows must not span midnight. [["22:00","02:00"]] is invalid: with
+# start > end no instant ever falls inside, so the window fails silently
+# and the whole night gets billed at the off-peak rate.
+#
+# Split a night window into two instead:
+#   peak_windows:
+#     - ["22:00", "24:00"]   # 24:00 marks the end of the day
+#     - ["00:00", "02:00"]   # next-day segment starts over
+#
+# check_pricing.py enforces start < end and allows "24:00" only in the
+# end position. Midnight-spanning windows are deliberately unsupported:
+# once peak_weekdays is in play, the weekday of a next-day segment would
+# be ambiguous.
+#
+# --------------------------------------------------------------------------
+
+tiers:
+
+  # ---- DeepSeek Flash ----
+  # Also covers the retired names deepseek-v4-flash and
+  # deepseek-v4-flash-vision-exp, still callable and billed as Flash.
+  deepseek-flash:
+    currency: CNY
+    billing: per_token
+    peak_windows:
+      - ["09:00", "12:00"]
+      - ["14:00", "18:00"]
+    peak_weekdays: [1, 2, 3, 4, 5]
+    cache_hit:  {idle: 0.02, peak: 0.04}
+    cache_miss: {idle: 1,    peak: 2}
+    output:     {idle: 4,    peak: 8}
+    verified_at: "2026-09-21"
+    source: "https://api-docs.deepseek.com/quick_start/pricing/"
+
+  # ---- DeepSeek V4 Pro ----
+  deepseek-v4-pro:
+    currency: CNY
+    billing: per_token
+    peak_windows:
+      - ["09:00", "12:00"]
+      - ["14:00", "18:00"]
+    peak_weekdays: [1, 2, 3, 4, 5]
+    cache_hit:  {idle: 0.15, peak: 0.30}
+    cache_miss: {idle: 4.5,  peak: 9.0}
+    output:     {idle: 13.5, peak: 27.0}
+    verified_at: "2026-09-21"
+    source: "https://api-docs.deepseek.com/quick_start/pricing/"
+
+
+# ==========================================================================
+# Recalculation rules
+# ==========================================================================
+#
+# 1. Non-cached input = in - cache_hit - cache_write, floored at 0.
+#    The in field counts all input, including cached tokens.
+#
+# 2. Peak status is read from the peak snapshot in the record, never
+#    re-derived from ts. The snapshot records the rule in force when the
+#    row was written, so later rule changes cannot rewrite history.
+#
+# 3. A tier without peak_windows ignores the peak field and uses flat
+#    prices.
+#
+# 4. A model missing from the mapping goes to unknown_models with
+#    cost=null. Never silently bill it as zero: the spend would vanish
+#    without anyone noticing.
+#
+# 5. billing: subscription bills 0 but keeps usage, reported separately.
+#
+# 6. No currency conversion. Reports are grouped and subtotalled per
+#    currency, never summed across currencies.
+#
+# 7. Missing fields:
+#    - rows with partial=true are still billed, but the report must show
+#      the completeness rate separately
+#    - a missing cache_write or reasoning_tokens only means the model
+#      does not produce that field, which is normal
+#
+# 8. When several pid files exist for one day, use --merge: concatenate,
+#    sort by ts, then deduplicate by req_id. Rows without a req_id must
+#    be flagged as "deduplication limited" in the report.
+#
+# 9. Price self-checks that must run in check_pricing.py:
+#    - peak_windows start < end, midnight-spanning windows rejected
+#    - cache_hit required only when cache_miss is present
+#    - verified_at staleness reminder
+#    - a currency overview of every tier, for manual review: the tool
+#      cannot tell whether a currency label is simply wrong
+
+# ==========================================================================
+# Part 2: model name -> tier
+# ==========================================================================
+#
+# Left side: the value of the model field in the log record.
+# Right side: a tier name from Part 1.
+#
+# Maintenance notes:
+#   - Renamed model, legacy name still callable -> add a line pointing
+#     at the same tier.
+#   - New model -> same price means a new mapping line, a different
+#     price means a new tier.
+#   - A name absent from the mapping -> cost is null, listed under
+#     unknown_models.
+#
+# NOTE: the keys below use the official model names plus a "deepseek/"
+# prefix, following the usual LiteLLM convention. Verify against the
+# real model field once a live gateway is running and correct if needed.
+
+model_to_tier:
+
+  # Flash: the retired names are still callable and billed as Flash
+  "deepseek/deepseek-flash":                deepseek-flash
+  "deepseek/deepseek-v4-flash":             deepseek-flash
+  "deepseek/deepseek-v4-flash-vision-exp":  deepseek-flash
+
+  "deepseek/deepseek-v4-pro":               deepseek-v4-pro
+
+# ==========================================================================
+# Recalculation rules
+# ==========================================================================
+#
+# 1. Non-cached input = in - cache_hit - cache_write, floored at 0.
+#    The in field counts all input, including cached tokens.
+#
+# 2. Peak status is read from the peak snapshot in the record, never
+#    re-derived from ts. The snapshot records the rule that was in force
+#    when the row was written, so a later rule change cannot rewrite
+#    history.
+#
+# 3. A tier without peak_windows ignores the peak field and uses flat
+#    prices.
+#
+# 4. A model missing from the mapping goes to unknown_models with
+#    cost=null. Never silently bill it as zero, or the spend disappears
+#    without anyone noticing.
+#
+# 5. billing: subscription bills 0 but keeps usage and is reported
+#    separately.
+#
+# 6. No currency conversion. Reports are grouped and subtotalled per
+#    currency and never summed across currencies.
+#
+# 7. Missing fields:
+#    - rows with partial=true are still billed, but the report must show
+#      the completeness rate separately
+#    - a missing cache_write or reasoning_tokens only means the model
+#      does not produce that field, which is normal
+#
+# 8. When several pid files exist for one day, use --merge: concatenate,
+#    sort by ts, then deduplicate by req_id. Rows without a req_id must
+#    be reported as deduplication limited.
+#
+# 9. Checks that check_pricing.py must perform:
+#    - peak_windows start < end, a midnight-spanning window is rejected
+#    - cache_hit required only when cache_miss is present
+#    - a stale verified_at reminder
+#    - a currency overview of every tier, for manual review: no tool can
+#      tell whether a currency label is simply wrong
+#
+# 10. Optional comparison against the LiteLLM price table:
+#     The built-in LiteLLM table is community maintained, so it may lag
+#     or be wrong. A difference only means the official page is worth a
+#     look, never that the local entry is wrong.
+#
+#     Modes, configured per tier:
+#       none   no comparison, the default
+#       cost   compare total cost, both sides converted to USD
+#
+#     Both thresholds are required, a single one is not enough:
+#       difference < warn_threshold           keep quiet
+#       warn_threshold <= difference <= alarm mention it
+#       difference > alarm_threshold          likely out of date
+#
+#     Compare only on off-peak records: LiteLLM does not know the peak
+#     windows configured here.
+#
+#     Cross-check hint: a populated cost_upstream means LiteLLM did get
+#     some usage, so a cache_hit of 0 on our side points at a broken
+#     extraction path rather than a model that reports no cache.
