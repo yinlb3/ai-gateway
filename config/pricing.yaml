@@ -39,8 +39,8 @@
 #   billing          required  per_token | subscription
 #                              subscription bills 0 but keeps usage
 #   peak_windows     optional  [["HH:MM","HH:MM"], ...] half-open
-#                              [start, end). Absent = flat pricing, the
-#                              peak field is then ignored.
+#                              [start, end). Absent = flat pricing: the
+#                              whole day uses one price.
 #   peak_weekdays    optional  ISO weekday numbers, 1=Mon .. 7=Sun.
 #                              Defaults to [1,2,3,4,5] when peak_windows
 #                              is present. Days outside the list are
@@ -127,12 +127,12 @@ tiers:
 # 1. Non-cached input = in - cache_hit - cache_write, floored at 0.
 #    The in field counts all input, including cached tokens.
 #
-# 2. Peak status is read from the peak snapshot in the record, never
-#    re-derived from ts. The snapshot records the rule in force when the
-#    row was written, so later rule changes cannot rewrite history.
+# 2. Peak status is derived from the record ts against the windows in
+#    this file. No band is stored in a record, so to reproduce an old
+#    report exactly, check out the price table that was in force then:
+#    git checkout <commit> -- config/pricing.yaml
 #
-# 3. A tier without peak_windows ignores the peak field and uses flat
-#    prices.
+# 3. A tier without peak_windows is flat: the whole day uses one price.
 #
 # 4. A model missing from the mapping goes to unknown_models with
 #    cost=null. Never silently bill it as zero: the spend would vanish
@@ -195,13 +195,10 @@ model_to_tier:
 # 1. Non-cached input = in - cache_hit - cache_write, floored at 0.
 #    The in field counts all input, including cached tokens.
 #
-# 2. Peak status is read from the peak snapshot in the record, never
-#    re-derived from ts. The snapshot records the rule that was in force
-#    when the row was written, so a later rule change cannot rewrite
-#    history.
+# 2. Peak status is derived from the record ts against the windows in
+#    this file, so a rate band never has to be stored in a record.
 #
-# 3. A tier without peak_windows ignores the peak field and uses flat
-#    prices.
+# 3. A tier without peak_windows is flat: the whole day uses one price.
 #
 # 4. A model missing from the mapping goes to unknown_models with
 #    cost=null. Never silently bill it as zero, or the spend disappears

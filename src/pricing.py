@@ -138,12 +138,36 @@ def in_windows(moment: time, windows: List[List[str]]) -> bool:
     return False
 
 
+def _row_moment(row: dict) -> datetime:
+    """
+    Read the timestamp out of a raw record.
+
+    The record stores its time as an ISO string. An unreadable value
+    cannot be placed in a peak window, so it is treated as idle rather
+    than raising: a single bad line should not stop the whole report.
+
+    Args:
+        row (dict): One raw record.
+
+    Returns:
+        datetime: Timestamp taken from the record, or the epoch when it
+            cannot be read.
+    """
+    raw = row.get('ts')
+    if isinstance(raw, str):
+        try:
+            return datetime.fromisoformat(raw)
+        except ValueError:
+            pass
+    return datetime.fromtimestamp(0)
+
+
 def is_peak(ts: datetime, tier: dict) -> bool:
     """
     Decide peak status for a tier at a moment in local time.
 
-    A tier without peak_windows is flat: it always returns False and the
-    peak field in a record is ignored.
+    A tier without peak_windows is flat: it always returns False and no
+    peak concept applies to it.
 
     Args:
         ts (datetime): Timestamp in the timezone the windows are
@@ -236,8 +260,11 @@ def row_cost(row: dict, doc: dict) -> Tuple[Optional[float], str]:
     if tier.get('billing') == 'subscription':
         return 0.0, tier['currency']
 
-    # 2. Pick the rate band from the peak snapshot in the record.
-    peak = bool(row.get('peak'))
+    # 2. Peak status is derived from the record's own timestamp, so a
+    #    rate band never has to be stored in the record. Recomputing a
+    #    historical day with an older price table is a matter of checking
+    #    out that version, which git already keeps.
+    peak = is_peak(_row_moment(row), tier)
     total_in = int(row.get('in', 0))
     cache_hit = int(row.get('cache_hit', 0))
     cache_write = int(row.get('cache_write', 0))

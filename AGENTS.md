@@ -31,18 +31,32 @@ without touching a single log line.
 - Python 3.12
 - `pyyaml` for the price table
 - `arrow` for timing and date handling
+- `litellm` for the gateway; the accounting modules import it nowhere
 - No database, no network access at report time
 
 **File Structure**
 
 - `config/pricing.yaml`: the price table. One tier is one complete set
   of prices; `model_to_tier` maps a model name to a tier.
+- `config/config.example.yaml`: a LiteLLM configuration template, with
+  every secret read from an environment variable.
+- `custom_callback.py`: the gateway callback. It turns each finished
+  request into one raw line. It never raises into the request path.
+- `src/record.py`: builds one raw record from a logging object. All the
+  provider-specific key names live here.
 - `src/pricing.py`: parses the price table, decides peak status, picks a
   rate band and costs one record. It never writes files.
 - `src/utils.py`: formatting helpers, currently elapsed time.
 - `check_pricing.py`: validates the price table and prints a currency
   overview. Exits 1 when an error is found.
 - `recalc.py`: rebuilds and prints the cost report for one or more days.
+- `test_callback.py`, `test_usage_logger.py`, `test_end_to_end.py`: the
+  three check suites. Each prints its own result and exits non-zero on
+  failure.
+- `tools/probe_fields.py`: captures one real payload from a live
+  gateway, to confirm the field names this project depends on.
+- `docs/key_setup_cn.md`: how to issue virtual keys and attribute a
+  request to a project.
 - `logs/`: raw records, one JSONL file per day. Runtime data, never
   edited by hand.
 
@@ -69,6 +83,20 @@ Rebuild a single day, or a date range:
 python recalc.py 2026-09-21
 python recalc.py 2026-09-01:2026-09-21
 python recalc.py 2026-09-21 --merge
+```
+
+Run the three check suites after any change to the recording path:
+
+```bat
+python test_callback.py
+python test_usage_logger.py
+python test_end_to_end.py
+```
+
+Confirm the field names against a live gateway, once:
+
+```bat
+python tools/probe_fields.py logs\probe\probe-20260921-120000.json
 ```
 
 Checks before running:
@@ -166,23 +194,25 @@ There is no unit test suite. Verify by hand:
 | Price table | Two DeepSeek tiers with peak and idle bands |
 | Price table checker | Field, window, cache and staleness checks |
 | Cost report | Per-currency report with the unknown-model list |
+| Record builder | Reads cache counters under every provider spelling |
+| Gateway callback | One JSON line per request, failures included |
+| Check suites | Three suites covering the record, the callback and the chain |
+| Example configuration | LiteLLM template with secrets kept in the environment |
+| Probe tool | Captures a real payload to confirm the field names |
 
 ### In Progress
 
 | Item | Note |
 |------|------|
-| Gateway callback | Needs a live LiteLLM instance to confirm usage fields |
+| Live field check | Needs a running gateway to confirm the cache key names |
 
 ### Todo
 
 | Priority | Item | Note |
 |----------|------|------|
-| P1 | Gateway callback | Record raw lines from real requests |
-| P2 | Field verification | Dump a real logging object for cache field names |
-| P3 | Project README | Usage, install notes and milestones |
+| P1 | Live field check | Run the probe against a real gateway and settle the key names |
+| P2 | Bill reconciliation | Compare one day of report output with the vendor invoice |
+| P3 | Design document sync | Rewrite design_cn.md so it matches the shipped code |
 
 Last Updated: 2026-09-21
 
-   13:00 is idle; a Saturday at 10:00 is idle.
-5. An unmapped model must appear under the unknown-model list with no
-   cost, never billed as zero.

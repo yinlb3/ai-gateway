@@ -1,16 +1,45 @@
 # ai-gateway
 
-Rebuild AI token cost reports from LiteLLM raw request records.
+Track AI token spend per tool and per project through a LiteLLM gateway.
 
 ## Table of Contents
 
+- [Install](#install)
 - [Usage](#usage)
 - [How It Works](#how-it-works)
 - [Milestones](#milestones)
 
+## Install
+
+```bat
+pip install -r requirements.txt
+```
+
+Python 3.12 or newer is required. The dependencies are `pyyaml` for the
+price table and `arrow` for timing.
+
 ## Usage
 
-Record raw lines through the gateway, then rebuild the report for a day:
+The toolchain has two halves. The gateway callback writes facts while
+requests are running; the report turns those facts into money later.
+
+### 1. Point the gateway at the callback
+
+Copy `config/config.example.yaml` to `config.yaml`, fill in the model
+names and the environment variable holding your API key, then start
+LiteLLM. Add this line so every finished request reaches the callback:
+
+```yaml
+litellm_settings:
+  callbacks: custom_callback.proxy_handler_instance
+```
+
+Requests are attributed to a project either by a
+`x-litellm-spend-logs-metadata` header or by the virtual key alias, which
+is written as `<tool>--<project>`. See `docs/key_setup_cn.md` for the
+full rules.
+
+### 2. Rebuild the report
 
 ```bat
 python recalc.py 2026-09-21
@@ -23,13 +52,19 @@ python recalc.py 2026-09-01:2026-09-21
 python recalc.py 2026-09-21 --merge
 ```
 
-Validate the price table after editing a price:
+### 3. Check the price table after editing a price
 
 ```bat
 python check_pricing.py
 ```
 
-Requirements: Python 3.12 with `pyyaml` and `arrow`.
+### 4. Run the checks
+
+```bat
+python test_callback.py
+python test_usage_logger.py
+python test_end_to_end.py
+```
 
 ## How It Works
 
@@ -53,6 +88,10 @@ under `unknown_models` with no cost, never billed as zero.
 
 Reports are grouped by currency and never summed across currencies.
 
+The callback never breaks a request. Every entry point catches its own
+errors, the module does nothing at import time, and a missing project
+is recorded as a gap rather than raised as a failure.
+
 ## Milestones
 
 | Item | Status | Note |
@@ -60,7 +99,8 @@ Reports are grouped by currency and never summed across currencies.
 | Price table | Completed | Two DeepSeek tiers, peak and idle bands |
 | Price checker | Completed | Field, window, cache and staleness checks |
 | Cost report | Completed | Per-currency report with unknown-model list |
-| Gateway callback | In Progress | Needs live LiteLLM data to confirm usage fields |
+| Gateway callback | Completed | One JSON line per request, failed calls included |
+| Live field check | In Progress | Confirm cache key names against a real gateway |
 
 - **Author**: yinlb<yinlb3@foxmail.com>, deepseek-flash
 

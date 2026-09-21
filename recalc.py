@@ -88,6 +88,14 @@ def _find_files(log_dir: Path, day: str, merge: bool) -> list:
     """
     Locate the raw files for one day.
 
+    A single-instance day has one file. A day during which a second
+    gateway process ran has one file per process as well, named after
+    the pid, and merge mode picks all of them up.
+
+    The pattern is anchored so that neighbouring days can never be
+    swept in: raw_2026-09-2 would otherwise match the 21st, the 22nd
+    and every other day of the month.
+
     Args:
         log_dir (Path): Directory holding the raw files.
         day (str): Date as YYYY-MM-DD.
@@ -100,12 +108,36 @@ def _find_files(log_dir: Path, day: str, merge: bool) -> list:
         FileNotFoundError: No file matches the day.
     """
     if merge:
-        found = sorted(log_dir.glob(f'raw_{day}*.jsonl'))
+        # A pid file inserts the pid before the extension, so the period
+        # is not part of the prefix being matched.
+        found = [p for p in sorted(log_dir.glob(f'raw_{day}*'))
+                 if _belongs_to_day(p.name, day)]
     else:
         found = sorted(log_dir.glob(f'raw_{day}.jsonl'))
     if not found:
         raise FileNotFoundError(f'no raw file for {day} in {log_dir}')
     return found
+
+
+def _belongs_to_day(name: str, day: str) -> bool:
+    """
+    Decide whether a file name belongs to the requested day.
+
+    Owners and pid files are both accepted, anything else is not, so a
+    neighbouring day can never be counted by accident.
+
+    Args:
+        name (str): File name, without a directory.
+        day (str): Date as YYYY-MM-DD.
+
+    Returns:
+        bool: True when the file holds that day's records.
+    """
+    if name == f'raw_{day}.jsonl':
+        return True
+    if not name.startswith(f'raw_{day}_'):
+        return False
+    return name.endswith('.jsonl')
 
 
 def _aggregate(rows: list, doc: dict) -> dict:

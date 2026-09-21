@@ -1,0 +1,124 @@
+# ==========================================================================
+# LiteLLM gateway configuration - example
+# ==========================================================================
+#
+# Copy this file to config.yaml and fill in the real values, then start
+# the gateway with:
+#
+#   litellm --config config.yaml
+#
+# No credential belongs in this file. Every secret is read from an
+# environment variable, so that the file can be committed safely.
+#
+# The gateway does two jobs for this project: it forwards requests, and
+# it hands each finished request to custom_callback.py, which writes one
+# raw line per call. Accounting is a side effect of forwarding, so a
+# problem in the callback must never break a request.
+
+model_list:
+
+  # The model_name is what the log record stores in its model field,
+  # and it must match a key in config/pricing.yaml. A mismatch is not
+  # fatal but it does mean the report cannot price those requests, so
+  # they appear under unknown_models instead.
+  #
+  # litellm_params.model is the string handed to the provider. The
+  # prefix tells LiteLLM which provider to use; the rest is the model
+  # name DeepSeek itself expects, which is exactly the name on the
+  # pricing page with no separate id.
+  #
+  # The retired names deepseek-v4-flash and
+  # deepseek-v4-flash-vision-exp are still callable and bill as Flash.
+  # They are listed here so that a client left on an old name keeps
+  # working, and they log under the same model_name as Flash.
+  - model_name: deepseek/deepseek-flash
+    litellm_params:
+      model: deepseek/deepseek-flash
+      api_base: https://api.deepseek.com
+      api_key: os.environ/DEEPSEEK_API_KEY
+    model_info:
+      id: deepseek-flash
+
+  - model_name: deepseek/deepseek-v4-pro
+    litellm_params:
+      model: deepseek/deepseek-v4-pro
+      api_base: https://api.deepseek.com
+      api_key: os.environ/DEEPSEEK_API_KEY
+    model_info:
+      id: deepseek-v4-pro
+
+  # Retired Flash names, kept callable and pointed at the live model.
+  # A client still using an old name keeps working, and the log records
+  # the current name so the price table needs no entry for the old ones.
+  - model_name: deepseek/deepseek-v4-flash
+    litellm_params:
+      model: deepseek/deepseek-flash
+      api_base: https://api.deepseek.com
+      api_key: os.environ/DEEPSEEK_API_KEY
+    model_info:
+      id: deepseek-v4-flash-retired
+
+  - model_name: deepseek/deepseek-v4-flash-vision-exp
+    litellm_params:
+      model: deepseek/deepseek-flash
+      api_base: https://api.deepseek.com
+      api_key: os.environ/DEEPSEEK_API_KEY
+    model_info:
+      id: deepseek-v4-flash-vision-retired
+
+litellm_settings:
+
+  # Load custom_callback.py from the project root and register the
+  # instance it exposes as proxy_handler_instance.
+  callbacks: custom_callback.proxy_handler_instance
+
+  # Do not let a callback failure fail a request. The accounting path is
+  # deliberately isolated from the request path.
+  num_retries: 2
+
+general_settings:
+
+  # A database is required for virtual keys: LiteLLM stores the keys
+  # and their spend there. The accounting in this project does not use
+  # it, since raw records go to logs/ as JSONL, but attribution by key
+  # alias cannot work without it.
+  #
+  # Point DATABASE_URL at your Postgres instance, for example
+  # postgresql://user:password@localhost:5432/litellm
+  database_url: os.environ/DATABASE_URL
+
+  # Required to issue and manage virtual keys.
+  master_key: os.environ/LITELLM_MASTER_KEY
+
+# ==========================================================================
+# Virtual keys and project attribution
+# ==========================================================================
+#
+# A request is attributed to a project in one of two ways, and the first
+# one that works is used.
+#
+# 1. A header, for tools that can send one:
+#
+#      x-litellm-spend-logs-metadata: {"project":"wind-forecast"}
+#
+#    The callback reads metadata.spend_logs_metadata.project. The value
+#    is a JSON string, so the quotes and braces must survive the client.
+#    Whether a given tool can send such a value is still to be checked.
+#
+# 2. A virtual key alias, for tools that can only be pointed at a
+#    different api_key:
+#
+#      key_alias = "<tool>--<project>"      e.g. codex--wind-forecast
+#
+#    The callback splits on the first "--" and takes the remainder as the
+#    project name. This is the main path, because it needs nothing beyond
+#    the virtual key that is already required.
+#
+# Naming rules for the alias:
+#   - lowercase letters and hyphens only, no spaces and no Chinese
+#   - one project per key, so N projects means N keys
+#   - the project part must not itself contain "--"
+#
+# A request with neither signal is still forwarded and still recorded.
+# It lands with user=null and partial=true, which the report surfaces,
+# so a missing project shows up as a gap rather than as a silent zero.

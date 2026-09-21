@@ -79,18 +79,38 @@
 | `model_id` | string | **否** | LiteLLM deployment 标识（顶层 `model_id`，备用 `hidden_params["model_id"]`）。同一模型配置多个 Key 轮询时，**仅此字段可区分**，用于排障 |
 | `api_base` | string | **否** | 上游地址（顶层 `api_base`，备用 `hidden_params["api_base"]`）。**防止官方直连与第三方中转同模型同价误算**；不外泄时只记 host |
 
-### 2.4 计价快照字段
+### 2.4 峰值判定（**已改为派生，不存快照**）
 
-| 字段 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| `peak` | bool | **否** | **当时的峰谷判断快照**。无峰谷规则的模型不写此字段 |
+> **实现变更说明**：原设计把 `peak` 作为快照写入每行记录。落地时改为**由记录自带的 `ts` 现场推导**，
+> 记录中**不再出现 `peak` 字段**。理由见下。
 
-> **为什么 `peak` 是快照而不只是派生值**：峰谷由"本项目配置的时段规则"决定，而非厂商标准。
-> 若将来修改时段定义，用新规则重算历史数据会导致**全部旧记录判断翻转**。
-> 因此必须在行内留下"当时怎么判的"，这是**防规则漂移的保险**，不是冗余。
+| 项 | 现在怎么做 |
+|----|-----------|
+| 判据 | 记录的 `ts` + `config/pricing.yaml` 的 `peak_windows` 与 `peak_weekdays` |
+| 实现 | `src/pricing.py` 的 `is_peak(ts, tier)`，由 `row_cost()` 调用 |
+| 记录字段 | **不写**。事实层只存不可推导的值，可推导的一律不存 |
 
-> **无峰谷规则的模型不写 `peak`**：字段不存在 = 该模型无此概念；
-> 而填 `false` 会被误读为"当时不在高峰"。两者语义不同，不可混用。
+**为什么不存快照**
+
+原设计担心"规则漂移"：若将来修改高峰时段定义，用新规则重算历史会导致旧记录判断翻转。
+这个担心是对的，但**存储快照不是正确的解法**，原因有三：
+
+1. **架构矛盾**：`peak` 依赖 `peak_windows`，而后者在 `pricing.yaml` 里。
+   若让 callback 写 `peak`，就必须读价目表——这与 6.3 的"callback 不读配置、导入期安全"直接冲突。
+2. **正确性更高**：快照是"写入那一刻的判断"，一旦写错就永久错。
+   实测中就出现过样例数据把 17:30（属高峰窗口）标成空闲，而按时间推导能算对。
+3. **有更好的机制**：`config/pricing.yaml` **已版本化入库**。要精确复现历史账，
+   只要取当时那个版本的价目表即可：
+
+   ```bat
+   git checkout <commit> -- config/pricing.yaml
+   python recalc.py 2026-09-21
+   ```
+
+   这比往每行塞一个快照更可靠，因为它保留了**完整的规则**，而不只是单条判断结果。
+
+**推论**：报表不再信任记录里的任何价格相关字段。记录只有事实（时间、模型、token 数），
+价格与峰谷规则全部来自价目表。这也是 1.1 节"两层分离"原则的直接体现。
 
 ### 2.5 错误与完整性字段
 
@@ -925,7 +945,7 @@ def user_from_alias(alias: str | None) -> str | None:
 | `user` 未设置 | **请求照常成功**，JSONL 记 `user=null` + `partial=true` + `err=missing_user`，日志有 ERROR |
 | **`user` 走 Key 别名** | `key_alias="codex--wind-forecast"` 时，`user` 记为 `wind-forecast` |
 | **`user` 走 header** | 带 `x-litellm-spend-logs-metadata: {"project":"x"}` 时，`user` 记为 `x` |
-| **峰谷请求** | 属峰谷档位的模型在高峰时段请求，`peak=true`，`cache_hit` 数值正确 |
+| **峰谷请求** | 属峰谷档位的模型在高峰时段请求，成本按高峰价计算（`peak` 不写入记录，由 `ts` 推导） |
 | **缓存读写** | 产生缓存写入的模型，`cache_hit`、`cache_write` 分别记录 |
 | **`usage_object` 缺失** | 模拟 `hidden_params.usage_object` 缺失但 `in`/`out` > 0，记录**带 `partial=true`**（不能静默） |
 | **无峰谷模型** | 该档位不配 `peak_windows` 时，记录中**不出现 `peak` 字段**（而非 `peak=false`） |
@@ -944,6 +964,7 @@ def user_from_alias(alias: str | None) -> str | None:
 | **路径基准** | 从其他工作目录启动，日志仍写入 `custom_callback.py` 同级 `logs/` |
 | **导入期安全** | 故意让 `pricing.yaml` 语法错误，**LiteLLM 仍能正常启动并转发请求** |
 | **峰值窗口校验** | `pricing.yaml` 填 `["22:00","02:00"]` 时，`check_pricing.py` **报错拒绝** |
+| **多实例降级** | 第二个进程写入 `raw_YYYY-MM-DD_<pid>.jsonl`，`--merge` 合并后按 `req_id` 只计一次 |
 | **`cache_hit` 条件必填** | 纯 `input` 档位不填 `cache_hit`，`check_pricing.py` **不报错** |
 
 ---
@@ -1039,6 +1060,6 @@ def user_from_alias(alias: str | None) -> str | None:
 
 ---
 
-*文档版本：v2.1*
+*文档版本：v2.2*
 *更新日期：2026-09-21*
-*变更摘要：核实 LiteLLM 实际字段与接口后修正 29 处。核心修正——① 删除不存在的 `x-litellm-user` header 与 `LITELLM_USER` 环境变量，项目名改为「Key 别名拆分」主路径；② 缓存/思考 token 实际在 `usage_object` 内且键名因 provider 而异，新增 `extract_usage()` 参考实现；③ `cost_upstream` 数据源明确为 `response_cost`；④ 失败请求改为「尽力提取」而非一律记 0；⑤ 路径基准改为 `__file__`（callback 拿不到 config 路径）；⑥ 新增 Postgres 部署前置、`--merge` 去重语义、导入期安全、三张报表清单、`peak_windows` 禁跨午夜、`cache_hit` 条件必填等约束；字段数 15 → 17。*
+*变更摘要：v2.1 → v2.2，依据落地实现修正 3 处——① 2.4 节：`peak` 由「写入快照」改为「按 `ts` 现场推导」，记录中不再出现该字段，理由与复现历史账的做法一并写明；② 第 9 节测试清单的「峰谷请求」条目同步更新；③ 第 9 节补充「多实例降级」验证项。代码实现见 `src/pricing.py` 的 `is_peak()` 与 `src/lockfile.py`。*

@@ -1,0 +1,180 @@
+# ==========================================================================
+# Pricing table template - copy and fill in
+# ==========================================================================
+#
+# This is a template, not a working configuration. Copy it to
+# pricing.yaml, replace the prices with the ones you actually pay, and
+# sign each entry with verified_at and source.
+#
+# Why a template: the price you pay depends on the channel (direct from
+# the vendor, a reseller, or an enterprise agreement). Only you know
+# which one applies, so the numbers have to be entered and checked by
+# hand. This project never fetches prices and never rewrites your table.
+#
+# --------------------------------------------------------------------------
+# Structure
+# --------------------------------------------------------------------------
+#
+#   Part 1  tiers          a tier = one complete set of prices
+#   Part 2  model_to_tier  model name -> tier
+#
+# The same price often covers several model names: a vendor renames a
+# model and keeps the old name callable. Splitting prices from names
+# means a rename costs one line, and the historical report is untouched.
+#
+# A model that is absent from the mapping is reported under
+# unknown_models with no cost. It is never billed as zero, because a
+# silent zero hides the spend rather than showing it.
+#
+# --------------------------------------------------------------------------
+# Tier fields
+# --------------------------------------------------------------------------
+#
+#   currency         required  CNY | USD. Never mixed within a report.
+#   billing          required  per_token | subscription
+#                              subscription bills 0 but keeps usage
+#   peak_windows     optional  [["HH:MM","HH:MM"], ...] half-open
+#                              absent = flat pricing, one price all day
+#   peak_weekdays    optional  ISO weekday numbers, 1=Mon .. 7=Sun
+#                              defaults to [1,2,3,4,5] when windows exist
+#   cache_hit        conditional  cached input price
+#                              required only when cache_miss is present
+#   cache_write      optional  cache write price, absent on many models
+#   cache_miss       optional  non-cached input price
+#   input            optional  plain input price, for models with no cache
+#   output           required  output price
+#   compare          optional  see the end of this file
+#   verified_at      required  the date you checked the vendor page
+#   source           required  the page you checked
+#
+# Prices are per million tokens, in the tier's own currency.
+#
+# Two forms are accepted:
+#   flat:  output: 4
+#   peak:  output: {idle: 4, peak: 8}
+#
+# The off-peak band is spelled idle, never off. YAML 1.1 reads a bare
+# off as the boolean False, which would turn {off: 4} into {False: 4}
+# and make every lookup fail.
+#
+# cache_miss and input are alternatives. When both are present,
+# cache_miss wins and input is ignored.
+#
+# --------------------------------------------------------------------------
+# peak_windows rules
+# --------------------------------------------------------------------------
+#
+# Each window is half-open: [start, end).
+#
+# A window must not span midnight. [["22:00","02:00"]] is invalid: with
+# start after end no instant ever falls inside, so the window silently
+# never matches and every night gets billed at the idle rate. Split it:
+#
+#   peak_windows:
+#     - ["22:00", "24:00"]
+#     - ["00:00", "02:00"]
+#
+# check_pricing.py rejects any window whose start is not before its end.
+#
+# The band is chosen from the record's own timestamp, so no peak flag is
+# stored in a record. To reproduce an old report exactly, check out the
+# price table that was in force at the time:
+#
+#   git checkout <commit> -- config/pricing.yaml
+
+
+# ==========================================================================
+# Part 1: tiers
+# ==========================================================================
+
+tiers:
+
+  # ---- Example: peak and idle bands, with caching ----
+  # Replace every number with the price you actually pay.
+  example-flash:
+    currency: CNY
+    billing: per_token
+    peak_windows:
+      - ["09:00", "12:00"]
+      - ["14:00", "18:00"]
+    peak_weekdays: [1, 2, 3, 4, 5]
+    cache_hit:  {idle: 0.02, peak: 0.04}
+    cache_miss: {idle: 1,    peak: 2}
+    output:     {idle: 4,    peak: 8}
+    verified_at: ""
+    source: ""
+
+  # ---- Example: a model with no cache concept ----
+  # Nothing to fill in for cache_hit: this model has none, so only the
+  # plain input price applies.
+  example-nocache:
+    currency: CNY
+    billing: per_token
+    input:  1
+    output: 2
+    verified_at: ""
+    source: ""
+
+  # ---- Example: a subscription model ----
+  # A subscription has no per-token price, so the cost is zero while the
+  # usage is still counted and reported. Do not write 0 as if it were a
+  # real price: the numbers are ignored anyway.
+  example-subscription:
+    currency: CNY
+    billing: subscription
+    input:  0
+    output: 0
+    verified_at: ""
+    source: ""
+
+# ==========================================================================
+# Part 2: model name -> tier
+# ==========================================================================
+#
+# Left: the value the log records in its model field.
+# Right: a tier name from Part 1.
+#
+# Add a line whenever a vendor renames a model but keeps the old name
+# callable, pointing both at the same tier. A model that is missing here
+# is reported, not billed.
+
+model_to_tier:
+
+  "example/example-flash":     example-flash
+  "example/example-flash-old": example-flash
+  "example/example-nocache":   example-nocache
+  "example/example-monthly":   example-subscription
+
+# ==========================================================================
+# Optional: compare against the LiteLLM price table
+# ==========================================================================
+#
+# LiteLLM ships a price table that the community maintains. It can lag
+# behind a vendor change and has been wrong on the ratio between input
+# and output. A difference therefore means "worth checking the vendor
+# page", never "this file is wrong".
+#
+# Add a compare block to a tier to switch it on:
+#
+#   compare:
+#     mode: cost
+#     litellm_key: "the model name LiteLLM knows"
+#     warn_threshold: 0.05
+#     alarm_threshold: 0.5
+#     note: "why this is configured this way"
+#
+# Modes:
+#   none   no comparison, the default
+#   cost   price a fixed reference request on both sides and compare
+#
+# Both thresholds are required:
+#   difference < warn_threshold               stay quiet
+#   warn_threshold <= difference <= alarm     worth a look
+#   difference > alarm_threshold              one side is likely stale
+#
+# Only idle prices take part, because LiteLLM does not know which hours
+# this file treats as peak.
+#
+# Cross-check hint: if a record carries cost_upstream but this project
+# reads cache_hit as 0, the extraction path is broken rather than the
+# model reporting no cache. That is the fastest signal of a broken path.

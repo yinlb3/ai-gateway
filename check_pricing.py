@@ -27,7 +27,7 @@ from pathlib import Path
 
 import arrow
 
-from src import pricing, utils
+from src import compare, pricing, utils
 
 # A price checked more than this many days ago needs review.
 STALE_DAYS = 90
@@ -265,6 +265,13 @@ def _run_checks(doc: dict) -> tuple:
     for name in doc['tiers']:
         if name not in used:
             notes.append(f'{name}: no model maps to this tier')
+
+    # 3. Compare against the LiteLLM table, for the tiers that ask for
+    #    it. Anything found here is a hint to check the official page,
+    #    never proof that the local entry is wrong.
+    compare_problems, compare_notes = compare.run(doc)
+    problems += compare_problems
+    notes += compare_notes
     return problems, notes
 
 
