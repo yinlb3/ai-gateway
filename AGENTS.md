@@ -187,6 +187,10 @@ There is no unit test suite. Verify by hand:
 
 ## 7. Milestones
 
+> **The project is paused as of 2026-09-22.** The tables below record the
+> state at that point. Read the "Project pause record" section of
+> `handoff.md` before resuming any work here.
+
 ### Completed
 
 | Item | Note |
@@ -199,20 +203,22 @@ There is no unit test suite. Verify by hand:
 | Check suites | Three suites covering the record, the callback and the chain |
 | Example configuration | LiteLLM template with secrets kept in the environment |
 | Probe tool | Captures a real payload to confirm the field names |
+| Live field check | Cache key names confirmed against a real gateway |
+| Holiday-aware pricing | Chinese statutory holidays billed at the idle band |
 
-### In Progress
+### Not Achieved
 
 | Item | Note |
 |------|------|
-| Live field check | Needs a running gateway to confirm the cache key names |
+| Client onboarding | The reason the project paused. The gateway works, but the user's Cline offers no Base URL field, so its traffic cannot reach it |
 
 ### Todo
 
 | Priority | Item | Note |
 |----------|------|------|
-| P1 | Live field check | Run the probe against a real gateway and settle the key names |
-| P2 | Bill reconciliation | Compare one day of report output with the vendor invoice |
-| P3 | Design document sync | Rewrite design_cn.md so it matches the shipped code |
+| P1 | Product positioning | Decide who the user is, and whether "clients must connect" is worth the cost. See `handoff.md` |
+| P2 | Database setup | Root cause located: empty database plus `DISABLE_SCHEMA_UPDATE` skipping table creation |
+| P3 | Design document sync | `design_cn.md` section 11 flags the two blocking unknowns |
 
-Last Updated: 2026-09-21
+Last Updated: 2026-09-22
 

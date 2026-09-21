@@ -44,3 +44,6 @@ tmp/
 *.tmpbak
 _*.py
 !__*__.py
+
+# Local-only notes, never published. Holds the unredacted handoff.
+.private/

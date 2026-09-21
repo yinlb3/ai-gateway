@@ -1,5 +1,15 @@
 # ai-gateway
 
+> **⛔ Project paused (2026-09-22).**
+>
+> The implementation is complete and works (58/58 checks pass), but the
+> product positioning did not hold: the core capability, per-tool and
+> per-project attribution, requires clients to be pointed at the gateway,
+> and that cost was judged to outweigh the benefit.
+>
+> **Read the "Project pause record" section in `handoff.md` before
+> restarting anything here.**
+
 Track AI token spend per tool and per project through a LiteLLM gateway.
 
 ## Table of Contents
@@ -105,16 +115,19 @@ is recorded as a gap rather than raised as a failure.
 
 ## Milestones
 
+> The project was paused on 2026-09-22. The table shows the state then.
+
 | Item | Status | Note |
 |------|--------|------|
 | Price table | Completed | Two DeepSeek tiers, peak and idle bands |
 | Price checker | Completed | Field, window, cache and staleness checks |
 | Cost report | Completed | Per-currency report with unknown-model list |
 | Gateway callback | Completed | One JSON line per request, failed calls included |
-| Live field check | In Progress | Confirm cache key names against a real gateway |
+| Live field check | Completed | Cache key names confirmed against a real gateway |
+| **Client onboarding** | **Not achieved** | **Why the project paused**; see `handoff.md` |
 
 - **Author**: yinlb<yinlb3@foxmail.com>, deepseek-flash
 
-Last Updated: 2026-09-21
+Last Updated: 2026-09-22
 
 [中文版](README_cn.md)

@@ -997,6 +997,9 @@ def user_from_alias(alias: str | None) -> str | None:
 
 ## 11. 待定项
 
+> **⚠️ 2026-09-22 补记：本节待定项 3、4 是承重墙,项目因未验证它们而暂停。**
+> 详见 `handoff.md` 的「项目暂停记录」一节。**重启本项目前必须先读完那一节。**
+
 以下各点需在实现阶段确认后回填本文档：
 
 | # | 待定项 | 影响 | 核实方式 |
@@ -1007,6 +1010,15 @@ def user_from_alias(alias: str | None) -> str | None:
 | 4 | `/key/generate` 的 `key_alias` 对 **`--` 与字段长度** 的限制 | 决定 7.2.3 的分隔符选择 | 试签发 `codex--wind-forecast`，看是否被拒 |
 | 5 | 流式请求失败时，LiteLLM 是否仍填充 `prompt_tokens` / `response_cost` | 决定 6 节"尽力提取"的实际收益 | 模拟流中途断开，检查失败事件 payload |
 | 6 | 峰谷规则是否区分周末 / 节假日 | 决定 `peak` 判断逻辑 | 产品决策 |
+
+**待定项 3、4 的实测结论（2026-09-22）**：
+
+- **第 3 项：不可行（在 Cline 上）**。用户所用 Cline 选内置 `DeepSeek`
+  provider 时，配置界面**只有 `API Key` 与 `Model`，没有 Base URL 字段**。
+  故 Cline 要么无法指向网关，要么必须改用 `OpenAI Compatible` provider
+  并承担单点故障等代价。**这是项目暂停的直接原因**
+- **第 4 项：未验证**。虚拟 key 依赖数据库，而数据库启动失败（根因见
+  `handoff.md`），故 `/key/generate` 从未真正跑通
 
 **已解决**：
 
