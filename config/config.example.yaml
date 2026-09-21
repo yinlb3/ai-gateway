@@ -2,41 +2,33 @@
 # LiteLLM gateway configuration - example
 # ==========================================================================
 #
-# Copy this file to config.yaml and fill in the real values, then start
-# the gateway with:
+# Copy this file to config.yaml, fill in the values, then run
+# run_gateway.bat. The live file is ignored by git; this one is committed
+# and must stay free of credentials.
 #
-#   litellm --config config.yaml
-#
-# No credential belongs in this file. Every secret is read from an
-# environment variable, so that the file can be committed safely.
-#
-# The gateway does two jobs for this project: it forwards requests, and
-# it hands each finished request to custom_callback.py, which writes one
-# raw line per call. Accounting is a side effect of forwarding, so a
-# problem in the callback must never break a request.
+# The gateway forwards requests and hands each finished one to
+# custom_callback.py, which writes a raw line. Accounting never blocks a
+# request.
 #
 # ==========================================================================
-# Where credentials live
+# Where credential values go
 # ==========================================================================
 #
-# config/.env holds the values and nothing else, one per line. This file
-# names them. A name written here as os.environ/XXX must appear as XXX in
-# config/.env, and neither file holds the other's job:
+# Either write the value straight into api_key, or write
+# os.environ/NAME and put NAME in the environment_variables block below.
+# A .env file is not read: LiteLLM loads one only when LITELLM_MODE=DEV.
 #
-#   config/.env          the values, ignored by git
-#   config.yaml          which model uses which value
+# Two are read from the environment only, they have no config.yaml key:
+#
+#   LITELLM_MASTER_KEY   admin key, must start with sk-
+#   LITELLM_SALT_KEY     encrypts stored credentials in Postgres; set it
+#                        once and never change it
 #
 # ==========================================================================
 # Adding a provider, or another key
 # ==========================================================================
 #
-# Each case takes two edits, one per file. Nothing else changes.
-#
-# Case 1 - a second provider, its own key.
-#
-#   in config/.env        OPENAI_API_KEY=sk-openai-xxx
-#
-#   here, add a block:
+# A second provider: add a block.
 #
 #     - model_name: openai/gpt-4o
 #       litellm_params:
@@ -45,58 +37,29 @@
 #       model_info:
 #         id: gpt-4o
 #
-# Case 2 - one provider, several keys, spread across them.
+# Several keys for one model: write the same model_name again. Identical
+# names form one pool, so requests are shared out and a failing key is
+# stepped over. Give each block a distinct model_info.id.
 #
-# Write the same model_name twice. LiteLLM reads identical names as one
-# pool: requests are shared out, and a key that errors or runs out of
-# quota is skipped.
+# Telling tools apart is not done here: that is what virtual keys are
+# for. See docs/key_setup_cn.md.
+
 #
-#   in config/.env        DEEPSEEK_API_KEY_A=sk-aaa
-#                         DEEPSEEK_API_KEY_B=sk-bbb
-#
-#   here, two blocks that differ only in the key and the id:
-#
-#     - model_name: deepseek/deepseek-flash
-#       litellm_params:
-#         model: deepseek/deepseek-flash
-#         api_base: https://api.deepseek.com
-#         api_key: os.environ/DEEPSEEK_API_KEY_A
-#       model_info:
-#         id: flash-a
-#
-#     - model_name: deepseek/deepseek-flash
-#       litellm_params:
-#         model: deepseek/deepseek-flash
-#         api_base: https://api.deepseek.com
-#         api_key: os.environ/DEEPSEEK_API_KEY_B
-#       model_info:
-#         id: flash-b
-#
-# Case 3 - telling tools apart, rather than providers.
-#
-# That is not done here. A provider key serves every tool, and virtual
-# keys are what separate them. See docs/key_setup_cn.md.
-#
-# A note on the price table: a model_name that no entry in
-# config/pricing.yaml maps is reported under unknown_models and never
-# billed as zero, so adding a provider also means adding its prices.
+# A model_name no entry in config/pricing.yaml maps is reported under
+# unknown_models and never billed as zero, so adding a provider also
+# means adding its prices.
 
 model_list:
 
-  # The model_name is what the log record stores in its model field,
-  # and it must match a key in config/pricing.yaml. A mismatch is not
-  # fatal but it does mean the report cannot price those requests, so
-  # they appear under unknown_models instead.
+  # model_name is what the log record stores, and it must match a key in
+  # config/pricing.yaml, or the report cannot price those requests.
   #
-  # litellm_params.model is the string handed to the provider. The
-  # prefix tells LiteLLM which provider to use; the rest is the model
-  # name DeepSeek itself expects, which is exactly the name on the
-  # pricing page with no separate id.
+  # api_key takes the value itself, or os.environ/NAME with NAME in the
+  # environment_variables block above.
   #
-  # The retired names deepseek-v4-flash and
-  # deepseek-v4-flash-vision-exp are still callable and bill as Flash.
-  # They are listed here so that a client left on an old name keeps
-  # working, and they log under the same model_name as Flash.
+  # Several keys for one model: repeat the block with the same model_name.
+  # Identical names form one pool, so requests are shared out and a failing
+  # key is stepped over. Give each block a distinct model_info.id.
   - model_name: deepseek/deepseek-flash
     litellm_params:
       model: deepseek/deepseek-flash
@@ -105,6 +68,9 @@ model_list:
     model_info:
       id: deepseek-flash
 
+  # Priced in pricing.yaml, but no key of its own is issued here. The
+  # deployment is declared so the entry exists and a key can be dropped
+  # in without touching anything else.
   - model_name: deepseek/deepseek-v4-pro
     litellm_params:
       model: deepseek/deepseek-v4-pro
@@ -113,78 +79,62 @@ model_list:
     model_info:
       id: deepseek-v4-pro
 
-  # Retired Flash names, kept callable and pointed at the live model.
-  # A client still using an old name keeps working, and the log records
-  # the current name so the price table needs no entry for the old ones.
-  - model_name: deepseek/deepseek-v4-flash
-    litellm_params:
-      model: deepseek/deepseek-flash
-      api_base: https://api.deepseek.com
-      api_key: os.environ/DEEPSEEK_API_KEY
-    model_info:
-      id: deepseek-v4-flash-retired
+# Retired names stay callable, pointed at the live model. The log records
+# the target name, so the price table needs no entry for the old ones.
+#
+# This block is the only place an alias takes effect: model_info is a
+# plain dict and an aliases list written there is ignored.
 
-  - model_name: deepseek/deepseek-v4-flash-vision-exp
-    litellm_params:
-      model: deepseek/deepseek-flash
-      api_base: https://api.deepseek.com
-      api_key: os.environ/DEEPSEEK_API_KEY
-    model_info:
-      id: deepseek-v4-flash-vision-retired
+router_settings:
+  model_group_alias:
+    deepseek/deepseek-v4-flash: deepseek/deepseek-flash
+    deepseek/deepseek-v4-flash-vision-exp: deepseek/deepseek-flash
 
 litellm_settings:
 
-  # Load custom_callback.py from the project root and register the
-  # instance it exposes as proxy_handler_instance.
+  # Load custom_callback.py from the project root as proxy_handler_instance.
   callbacks: custom_callback.proxy_handler_instance
 
-  # Do not let a callback failure fail a request. The accounting path is
-  # deliberately isolated from the request path.
+  # Upstream retries. Does not control callback behaviour: the accounting
+  # path is isolated by custom_callback.py catching its own errors.
   num_retries: 2
+
 
 general_settings:
 
-  # A database is required for virtual keys: LiteLLM stores the keys
-  # and their spend there. The accounting in this project does not use
-  # it, since raw records go to logs/ as JSONL, but attribution by key
-  # alias cannot work without it.
-  #
-  # Point DATABASE_URL at your Postgres instance, for example
-  # postgresql://user:password@localhost:5432/litellm
+  # Required for virtual keys, which is what attributes spend to a tool.
+  # The accounting never reads it: raw records go to logs/ as JSONL.
   database_url: os.environ/DATABASE_URL
 
-  # Required to issue and manage virtual keys.
+  # Admin key, also the one that authorizes POST /key/generate.
   master_key: os.environ/LITELLM_MASTER_KEY
+
+  # Set to [] when clients reach the proxy directly. Left unset, LiteLLM
+  # warns at startup and only the weaker login limit applies.
+  trusted_proxy_ranges: []
 
 # ==========================================================================
 # Virtual keys and project attribution
 # ==========================================================================
 #
-# A request is attributed to a project in one of two ways, and the first
-# one that works is used.
+# A request is attributed in one of two ways, first match wins.
 #
-# 1. A header, for tools that can send one:
+# 1. Header, for tools that can send one:
 #
 #      x-litellm-spend-logs-metadata: {"project":"wind-forecast"}
 #
-#    The callback reads metadata.spend_logs_metadata.project. The value
-#    is a JSON string, so the quotes and braces must survive the client.
-#    Whether a given tool can send such a value is still to be checked.
-#
-# 2. A virtual key alias, for tools that can only be pointed at a
-#    different api_key:
+# 2. Virtual key alias, for tools that only get a different api_key:
 #
 #      key_alias = "<tool>--<project>"      e.g. codex--wind-forecast
 #
-#    The callback splits on the first "--" and takes the remainder as the
-#    project name. This is the main path, because it needs nothing beyond
-#    the virtual key that is already required.
+#    The callback splits on the first "--". This is the main path.
 #
-# Naming rules for the alias:
+# Alias naming rules:
 #   - lowercase letters and hyphens only, no spaces and no Chinese
 #   - one project per key, so N projects means N keys
 #   - the project part must not itself contain "--"
 #
-# A request with neither signal is still forwarded and still recorded.
-# It lands with user=null and partial=true, which the report surfaces,
-# so a missing project shows up as a gap rather than as a silent zero.
+# A request with neither signal is still forwarded and recorded, landing
+# with user=null and partial=true, so a missing project shows up in the
+# report as a gap rather than as a silent zero.
+

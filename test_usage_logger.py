@@ -258,6 +258,20 @@ def test_callback_event_never_raises() -> None:
         custom_callback._LOGGER = original
 
 
+def _today() -> str:
+    """
+    Build the filename stem the logger will use for a fresh sample.
+
+    _sample() carries no timestamp, so the logger stamps the row with the
+    current moment and the daily file is named after today. Tests that
+    hardcode a date pass only on that one day.
+
+    Returns:
+        str: Date part, YYYY-MM-DD, of the current local day.
+    """
+    return datetime.now().strftime('%Y-%m-%d')
+
+
 def test_owner_writes_plain_daily_file() -> None:
     """The first process writes raw_YYYY-MM-DD.jsonl."""
     tmp = Path(tempfile.mkdtemp())
@@ -267,7 +281,8 @@ def test_owner_writes_plain_daily_file() -> None:
 
         assert logger._owns_file is True
         files = sorted(p.name for p in tmp.glob('raw_*.jsonl'))
-        assert files == ['raw_2026-09-21.jsonl'], files
+        expected = f'raw_{_today()}.jsonl'
+        assert files == [expected], files
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 
@@ -287,7 +302,7 @@ def test_loser_writes_pid_file() -> None:
 
         assert logger._owns_file is False
         files = sorted(p.name for p in tmp.glob('raw_*.jsonl'))
-        expected = f'raw_2026-09-21_{os.getpid()}.jsonl'
+        expected = f'raw_{_today()}_{os.getpid()}.jsonl'
         assert files == [expected], files
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
@@ -307,7 +322,8 @@ def test_stale_owner_is_taken_over() -> None:
 
         assert logger._owns_file is True
         files = sorted(p.name for p in tmp.glob('raw_*.jsonl'))
-        assert files == ['raw_2026-09-21.jsonl'], files
+        expected = f'raw_{_today()}.jsonl'
+        assert files == [expected], files
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 

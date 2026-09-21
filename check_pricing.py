@@ -12,6 +12,7 @@ Checks performed:
     4. verified_at parses and is not older than STALE_DAYS.
     5. A currency overview of every tier, for manual review.
     6. Off-peak price equals half the peak price, as the vendor states.
+    7. The hand-maintained holiday list parses and looks complete.
 """
 
 # -*- coding: utf-8 -*-
@@ -26,14 +27,23 @@ from datetime import date, datetime
 from pathlib import Path
 
 import arrow
+import yaml
 
 from src import compare, pricing, utils
 
 # A price checked more than this many days ago needs review.
 STALE_DAYS = 90
 
+# A complete year of Chinese public holidays runs to roughly this many
+# days. A shorter list is reported as probably unfinished.
+MIN_HOLIDAYS_PER_YEAR = 10
+
 # The pricing file sits in the config directory beside the project root.
 DEFAULT_PATH = Path(__file__).parent / 'config' / 'pricing.yaml'
+
+# The live gateway configuration, which is machine specific and usually
+# absent. The cross-check is skipped when it is missing.
+GATEWAY_PATH = Path(__file__).parent / 'config' / 'config.yaml'
 
 # Fields every tier must carry, and the price fields.
 REQUIRED = ['currency', 'billing', 'output', 'verified_at', 'source']
@@ -208,6 +218,70 @@ def _check_halving(name: str, tier: dict) -> list:
     return notes
 
 
+def _check_holidays(doc: dict) -> tuple:
+    """
+    Check the hand-maintained holiday list.
+
+    The list is optional. When present, every entry must be a valid
+    YYYY-MM-DD, and a date the installed calendar disagrees about is
+    reported: either the entry is a typo, or the calendar is out of
+    date, and both are worth a look.
+
+    Args:
+        doc (dict): Document returned by load_pricing.
+
+    Returns:
+        tuple: Two lists, problems and notes, both of English text.
+    """
+    problems = list()
+    notes = list()
+    block = doc.get('holidays')
+    if not isinstance(block, dict):
+        return problems, notes
+
+    dates = block.get('dates') or list()
+    seen = set()
+    weekends = list()
+    for raw in dates:
+        try:
+            day = date.fromisoformat(str(raw))
+        except ValueError:
+            problems.append(f'holidays.dates: {raw!r} is not YYYY-MM-DD')
+            continue
+        if day.isoformat() in seen:
+            notes.append(f'holidays.dates: {day.isoformat()} is listed twice')
+        seen.add(day.isoformat())
+        if day.isoweekday() > 5:
+            weekends.append(day.isoformat())
+
+    # Weekend entries are harmless, since peak_weekdays excludes them, so
+    # they are summarised rather than listed one by one.
+    if weekends:
+        notes.append(f'holidays.dates: {len(weekends)} entr(ies) fall on a '
+                     'weekend, which peak_weekdays already excludes')
+
+    # A list that is not empty takes over the whole year, so a short one
+    # silently turns the missing holidays into working days.
+    per_year = dict()
+    for stamp in seen:
+        per_year.setdefault(date.fromisoformat(stamp).year, 0)
+        per_year[date.fromisoformat(stamp).year] += 1
+    for year, count in sorted(per_year.items()):
+        if count < MIN_HOLIDAYS_PER_YEAR:
+            notes.append(f'holidays.dates: only {count} date(s) for {year}, '
+                         f'and a non-empty list decides the whole year; '
+                         f'a full year has around {MIN_HOLIDAYS_PER_YEAR} '
+                         'days, so fill it from tools/fetch_holidays.py')
+
+    # Cross-check the years covered against the installed calendar.
+    found = pricing.library_covered_years()
+    for year in sorted(per_year):
+        if year not in found:
+            notes.append(f'holidays.dates: the calendar has no complete '
+                         f'data for {year}; the list covers it, so it wins')
+    return problems, notes
+
+
 def _check_verified(name: str, tier: dict) -> list:
     """
     Check the verified_at date for staleness.
@@ -266,12 +340,81 @@ def _run_checks(doc: dict) -> tuple:
         if name not in used:
             notes.append(f'{name}: no model maps to this tier')
 
-    # 3. Compare against the LiteLLM table, for the tiers that ask for
+    # 3. Check the hand-maintained holiday list, when there is one.
+    holiday_problems, holiday_notes = _check_holidays(doc)
+    problems += holiday_problems
+    notes += holiday_notes
+
+    # 4. Check the two files still agree about which models exist.
+    gateway_problems, gateway_notes = _check_gateway(doc)
+    problems += gateway_problems
+    notes += gateway_notes
+
+    # 5. Compare against the LiteLLM table, for the tiers that ask for
     #    it. Anything found here is a hint to check the official page,
     #    never proof that the local entry is wrong.
     compare_problems, compare_notes = compare.run(doc)
     problems += compare_problems
     notes += compare_notes
+    return problems, notes
+
+
+def _check_gateway(doc: dict) -> tuple:
+    """
+    Compare the price table against the gateway configuration.
+
+    The two files drift apart easily: a model added to config.yaml but
+    missing from model_to_tier is reported as an unknown model and its
+    spend is lost, while a mapping entry nothing declares can never be
+    reached. Neither is an error on its own, since a report can be
+    rebuilt on a machine that never hosts a gateway, so both are notes.
+
+    Args:
+        doc (dict): Document returned by load_pricing.
+
+    Returns:
+        tuple: Two lists, problems and notes, both of English text.
+    """
+    problems = list()
+    notes = list()
+    path = GATEWAY_PATH
+    if not path.is_file():
+        return problems, notes
+
+    try:
+        gateway = yaml.safe_load(path.read_text(encoding='utf-8')) or dict()
+    except Exception as exc:
+        problems.append(f'cannot read {path.name}: {exc}')
+        return problems, notes
+
+    declared = set()
+    for entry in gateway.get('model_list') or list():
+        name = entry.get('model_name') if isinstance(entry, dict) else None
+        if name:
+            declared.add(name)
+
+    aliases = ((gateway.get('router_settings') or dict())
+               .get('model_group_alias') or dict())
+
+    mapped = set(doc['model_to_tier'])
+
+    # 1. A model the gateway serves but the price table cannot bill.
+    for name in sorted(declared - mapped):
+        notes.append(f'{name}: declared in config.yaml but absent from '
+                     'model_to_tier, so its spend lands in unknown_models')
+
+    # 2. A mapping entry the gateway does not serve, or an alias does.
+    reachable = declared | set(aliases)
+    for name in sorted(mapped - reachable):
+        if name.startswith('deepseek/'):
+            notes.append(f'{name}: mapped in pricing.yaml but neither '
+                         'declared nor aliased in config.yaml')
+
+    # 3. An alias pointing at a model the table does not know.
+    for alias, target in sorted(aliases.items()):
+        if target not in mapped:
+            notes.append(f'{alias}: alias target {target} is absent from '
+                         'model_to_tier')
     return problems, notes
 
 

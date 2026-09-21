@@ -86,6 +86,65 @@
 # be ambiguous.
 #
 # --------------------------------------------------------------------------
+# Holidays
+# --------------------------------------------------------------------------
+#
+# The vendor excludes Chinese public holidays from peak hours, so a
+# working weekday inside one bills at the idle rate for the whole day.
+#
+# The day is decided by the first source that answers, in this order:
+#
+#   1. dates below          hand verified, takes precedence
+#   2. holidays             installed library
+#   3. chinese_calendar     installed library, fallback
+#
+# A year none of them covers is reported on stderr and billed at the
+# working-day rate, never silently skipped.
+#
+# Make-up working days need no entry: they fall on a weekend, and
+# peak_weekdays below already excludes weekends.
+#
+# tools/fetch_holidays.py can fill the list from the State Council
+# announcement and warn when it disagrees with what is written here.
+
+holidays:
+  dates:
+  - '2026-01-01'
+  - '2026-01-02'
+  - '2026-01-03'
+  - '2026-02-15'
+  - '2026-02-16'
+  - '2026-02-17'
+  - '2026-02-18'
+  - '2026-02-19'
+  - '2026-02-20'
+  - '2026-02-21'
+  - '2026-02-22'
+  - '2026-02-23'
+  - '2026-04-04'
+  - '2026-04-05'
+  - '2026-04-06'
+  - '2026-05-01'
+  - '2026-05-02'
+  - '2026-05-03'
+  - '2026-05-04'
+  - '2026-05-05'
+  - '2026-06-19'
+  - '2026-06-20'
+  - '2026-06-21'
+  - '2026-09-25'
+  - '2026-09-26'
+  - '2026-09-27'
+  - '2026-10-01'
+  - '2026-10-02'
+  - '2026-10-03'
+  - '2026-10-04'
+  - '2026-10-05'
+  - '2026-10-06'
+  - '2026-10-07'
+  verified_at: '2026-09-21'
+  source: https://www.gov.cn/zhengce/zhengceku/202511/content_7047091.htm
+# --------------------------------------------------------------------------
 
 tiers:
 
@@ -103,7 +162,7 @@ tiers:
     cache_miss: {idle: 1,    peak: 2}
     output:     {idle: 4,    peak: 8}
     verified_at: "2026-09-21"
-    source: "https://api-docs.deepseek.com/quick_start/pricing/"
+    source: "https://api-docs.deepseek.com/zh-cn/quick_start/pricing/"
 
   # ---- DeepSeek V4 Pro ----
   deepseek-v4-pro:
@@ -117,7 +176,7 @@ tiers:
     cache_miss: {idle: 4.5,  peak: 9.0}
     output:     {idle: 13.5, peak: 27.0}
     verified_at: "2026-09-21"
-    source: "https://api-docs.deepseek.com/quick_start/pricing/"
+    source: "https://api-docs.deepseek.com/zh-cn/quick_start/pricing/"
 
 
 # ==========================================================================
