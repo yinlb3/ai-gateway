@@ -4,3 +4,23 @@
 
 pyyaml>=6.0.3
 arrow>=1.4.0
+
+# --------------------------------------------------------------------------
+# Running the gateway itself needs one more set, which is deliberately kept
+# out of the list above. The accounting modules import LiteLLM nowhere, so
+# the report can be rebuilt on a machine that never hosts a gateway. Only
+# the machine that actually serves requests needs this:
+#
+#     pip install "litellm[proxy,extra-proxy]"
+#
+# The proxy extra carries the web server and the Redis client; extra-proxy
+# adds the database and cloud-storage pieces. Install it with pip rather
+# than conda: several of the packages it pulls in, including
+# litellm-proxy-extras, are not published on conda-forge, and mixing the
+# two managers leaves conda's dependency records out of step with what is
+# actually installed.
+#
+# Note that extra-proxy declares hiredis, the C client, while LiteLLM's own
+# code imports redis, the Python client. Install redis alongside it when
+# pip does not pull it in on its own.
+# --------------------------------------------------------------------------

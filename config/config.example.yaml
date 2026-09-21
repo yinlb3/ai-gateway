@@ -14,6 +14,72 @@
 # it hands each finished request to custom_callback.py, which writes one
 # raw line per call. Accounting is a side effect of forwarding, so a
 # problem in the callback must never break a request.
+#
+# ==========================================================================
+# Where credentials live
+# ==========================================================================
+#
+# config/.env holds the values and nothing else, one per line. This file
+# names them. A name written here as os.environ/XXX must appear as XXX in
+# config/.env, and neither file holds the other's job:
+#
+#   config/.env          the values, ignored by git
+#   config.yaml          which model uses which value
+#
+# ==========================================================================
+# Adding a provider, or another key
+# ==========================================================================
+#
+# Each case takes two edits, one per file. Nothing else changes.
+#
+# Case 1 - a second provider, its own key.
+#
+#   in config/.env        OPENAI_API_KEY=sk-openai-xxx
+#
+#   here, add a block:
+#
+#     - model_name: openai/gpt-4o
+#       litellm_params:
+#         model: openai/gpt-4o
+#         api_key: os.environ/OPENAI_API_KEY
+#       model_info:
+#         id: gpt-4o
+#
+# Case 2 - one provider, several keys, spread across them.
+#
+# Write the same model_name twice. LiteLLM reads identical names as one
+# pool: requests are shared out, and a key that errors or runs out of
+# quota is skipped.
+#
+#   in config/.env        DEEPSEEK_API_KEY_A=sk-aaa
+#                         DEEPSEEK_API_KEY_B=sk-bbb
+#
+#   here, two blocks that differ only in the key and the id:
+#
+#     - model_name: deepseek/deepseek-flash
+#       litellm_params:
+#         model: deepseek/deepseek-flash
+#         api_base: https://api.deepseek.com
+#         api_key: os.environ/DEEPSEEK_API_KEY_A
+#       model_info:
+#         id: flash-a
+#
+#     - model_name: deepseek/deepseek-flash
+#       litellm_params:
+#         model: deepseek/deepseek-flash
+#         api_base: https://api.deepseek.com
+#         api_key: os.environ/DEEPSEEK_API_KEY_B
+#       model_info:
+#         id: flash-b
+#
+# Case 3 - telling tools apart, rather than providers.
+#
+# That is not done here. A provider key serves every tool, and virtual
+# keys are what separate them. See docs/key_setup_cn.md.
+#
+# A note on the price table: a model_name that no entry in
+# config/pricing.yaml maps is reported under unknown_models and never
+# billed as zero, so adding a provider also means adding its prices.
 
 model_list:
 

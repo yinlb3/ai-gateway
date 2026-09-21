@@ -8,6 +8,15 @@ venv/
 .env/
 .venv/
 
+# Provider credentials: the values are secrets, only the template is
+# versioned. config/.env holds the real keys and must never be committed.
+config/.env
+config/.env.local
+
+# The live gateway configuration, filled in from config.example.yaml. It
+# describes one machine, so it is not source.
+config/config.yaml
+
 # IDE
 .idea/
 .vscode/

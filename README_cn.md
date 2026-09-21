@@ -15,7 +15,18 @@
 pip install -r requirements.txt
 ```
 
-需要 Python 3.12 或更高版本。依赖为 `pyyaml`（读取价目表）与 `arrow`（时间处理）。
+需要 Python 3.12 或更高版本。计费侧依赖为 `pyyaml`（读取价目表）与
+`arrow`（时间处理）。
+
+只有跑网关的那台机器还需要装 LiteLLM：
+
+```bat
+pip install "litellm[proxy,extra-proxy]"
+```
+
+两半刻意分开：callback 与全部报表模块只依赖原始记录，因此报表可以在
+从不承载网关的机器上重算。这组 extras 请用 pip 装，conda 装会缺包——
+它拉取的一部分包在 conda-forge 上没有发布。
 
 ## 使用方式
 

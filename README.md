@@ -15,8 +15,19 @@ Track AI token spend per tool and per project through a LiteLLM gateway.
 pip install -r requirements.txt
 ```
 
-Python 3.12 or newer is required. The dependencies are `pyyaml` for the
-price table and `arrow` for timing.
+Python 3.12 or newer is required. The accounting dependencies are `pyyaml`
+for the price table and `arrow` for timing.
+
+Only the machine that runs the gateway needs LiteLLM as well:
+
+```bat
+pip install "litellm[proxy,extra-proxy]"
+```
+
+The two halves are separate on purpose. The callback and every reporting
+module work from raw records alone, so a report can be rebuilt on a
+machine that never hosts a gateway. Install this extra with pip rather
+than conda: several packages it pulls in are absent from conda-forge.
 
 ## Usage
 
